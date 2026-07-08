@@ -2,27 +2,33 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
+import { adminRouter } from "./routers/admin";
+import { binderRouter } from "./routers/binder";
+import { cardsRouter } from "./routers/cards";
+import { creditsRouter } from "./routers/credits";
+import { profileRouter } from "./routers/profile";
+import { sellRouter } from "./routers/sell";
+import { stripeRouter } from "./routers/stripe";
+import { templatesRouter } from "./routers/templates";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      return { success: true } as const;
     }),
   }),
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  cards: cardsRouter,
+  binder: binderRouter,
+  credits: creditsRouter,
+  sell: sellRouter,
+  templates: templatesRouter,
+  admin: adminRouter,
+  profile: profileRouter,
+  stripe: stripeRouter,
 });
 
 export type AppRouter = typeof appRouter;

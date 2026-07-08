@@ -4,35 +4,52 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import AppLayout from "./components/AppLayout";
 import Home from "./pages/Home";
+import Scan from "./pages/Scan";
+import CardDetail from "./pages/CardDetail";
+import Binder from "./pages/Binder";
+import SellAssistant from "./pages/SellAssistant";
+import SalesActivity from "./pages/SalesActivity";
+import ListingTemplates from "./pages/ListingTemplates";
+import Credits from "./pages/Credits";
+import PurchaseHistory from "./pages/PurchaseHistory";
+import AdminDashboard from "./pages/AdminDashboard";
+import UserProfile from "./pages/UserProfile";
+import Settings from "./pages/Settings";
+import HelpCenter from "./pages/HelpCenter";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/" component={Home} />
+      <Route path="/scan" component={Scan} />
+      <Route path="/card/:id" component={CardDetail} />
+      <Route path="/binder" component={Binder} />
+      <Route path="/sell-assistant" component={SellAssistant} />
+      <Route path="/sales-activity" component={SalesActivity} />
+      <Route path="/listing-templates" component={ListingTemplates} />
+      <Route path="/credits" component={Credits} />
+      <Route path="/purchase-history" component={PurchaseHistory} />
+      <Route path="/admin" component={AdminDashboard} />
+      <Route path="/user-profile" component={UserProfile} />
+      <Route path="/settings" component={Settings} />
+      <Route path="/help-center" component={HelpCenter} />
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
-          <Router />
+          <AppLayout>
+            <Router />
+          </AppLayout>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

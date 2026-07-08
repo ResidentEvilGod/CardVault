@@ -8,6 +8,8 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { nightlyPriceUpdateHandler } from "../priceUpdateHandler";
+import { stripeWebhookHandler } from "../stripeWebhookHandler";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -36,6 +38,20 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // Stripe webhook (needs raw body)
+  app.post("/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    (req, res, next) => {
+      // Attach raw body for Stripe signature verification
+      (req as express.Request & { rawBody?: Buffer }).rawBody = req.body as Buffer;
+      next();
+    },
+    stripeWebhookHandler
+  );
+
+  // Scheduled: nightly price update
+  app.post("/api/scheduled/price-update", nightlyPriceUpdateHandler);
+
   // tRPC API
   app.use(
     "/api/trpc",
