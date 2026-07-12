@@ -319,7 +319,7 @@ Contributions welcome! Please:
 
 ## 📧 Support
 
-For issues, questions, or feature requests, please open a GitHub issue or contact the team at [[your-email@example.com](mailto:your-email@example.com)].
+For issues, questions, or feature requests, please open a GitHub issue or contact the team at [resmaster19@gmail.com].
 
 ---
 
