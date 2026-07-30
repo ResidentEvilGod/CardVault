@@ -148,14 +148,18 @@ A fantasy-themed mobile app for scanning, identifying, and valuating trading car
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cardvault.git
-cd cardvault
+git clone https://github.com/ResidentEvilGod/CardVault.git
+cd CardVault
 
 # Install dependencies
 pnpm install
 
-# Set up environment variables (auto-configured by Manus )
-# STRIPE_SECRET_KEY, VITE_STRIPE_PUBLISHABLE_KEY, DATABASE_URL, JWT_SECRET, etc.
+# Set up environment variables
+# Create a .env.local file with:
+# DATABASE_URL=mysql://user:password@localhost:3306/cardvault
+# JWT_SECRET=your-secret-key
+# STRIPE_SECRET_KEY=sk_test_...
+# VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
 
 # Run database migrations
 pnpm drizzle-kit generate
@@ -167,15 +171,21 @@ pnpm dev
 
 The app will be available at `http://localhost:3000`.
 
-### Testing Stripe Payments (Sandbox )
+### Windows Users
+
+The project now includes `cross-env` for Windows compatibility. Simply run:
+```bash
+pnpm dev
+```
+
+No additional setup needed! The `NODE_ENV` variable will work correctly on Windows, Mac, and Linux.
+
+### Testing Stripe Payments (Sandbox)
 
 1. Sign in at `/credits`
-
-1. Click any "Buy Credits" or "Subscribe Now" button
-
-1. Use test card: `4242 4242 4242 4242` (any future expiry, any CVC)
-
-1. Verify webhook credits your account in real-time
+2. Click any "Buy Credits" or "Subscribe Now" button
+3. Use test card: `4242 4242 4242 4242` (any future expiry, any CVC)
+4. Verify webhook credits your account in real-time
 
 ### Running Tests
 
@@ -185,12 +195,20 @@ pnpm test
 
 All 14 tests should pass with zero errors.
 
+### TypeScript Check
+
+```bash
+pnpm check
+```
+
+Should show zero errors.
+
 ---
 
 ## 📁 Project Structure
 
 ```
-cardvault/
+CardVault/
 ├── client/
 │   ├── src/
 │   │   ├── pages/              # 13 feature pages
@@ -212,7 +230,8 @@ cardvault/
 │   └── migrations/             # Generated SQL migrations
 ├── shared/                     # Shared types & constants
 ├── references/                 # Integration guides (LLM, storage, etc.)
-└── todo.md                     # Feature checklist
+├── package.json                # Dependencies & scripts
+└── README.md                   # This file
 ```
 
 ---
@@ -319,7 +338,7 @@ Contributions welcome! Please:
 
 ## 📧 Support
 
-For issues, questions, or feature requests, please open a GitHub issue or contact the team at [resmaster19@gmail.com].
+For issues, questions, or feature requests, please open a GitHub issue or contact the team at resmaster19@gmail.com.
 
 ---
 
