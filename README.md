@@ -368,6 +368,4 @@ For issues, questions, or feature requests, please open a GitHub issue or contac
 
 - [ ] Internationalization (multi-language support)
 
----
 
-**Built with ❤️ using React, tRPC, Stripe, and Manus**
