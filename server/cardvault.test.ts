@@ -115,6 +115,15 @@ describe("admin procedures", () => {
       expect(error?.code).not.toBe("FORBIDDEN");
     }
   });
+
+  it("returns payment readiness without exposing credentials", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
+    const result = await caller.admin.paymentStatus();
+    expect(typeof result.stripe.walletCheckoutConfigured).toBe("boolean");
+    expect(typeof result.xrpl.configured).toBe("boolean");
+    expect(result).not.toHaveProperty("secretKey");
+    expect(result).not.toHaveProperty("webhookSecret");
+  });
 });
 
 // ─── Stripe router tests ──────────────────────────────────────────────────────

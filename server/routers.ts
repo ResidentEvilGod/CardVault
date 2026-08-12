@@ -10,6 +10,7 @@ import { profileRouter } from "./routers/profile";
 import { sellRouter } from "./routers/sell";
 import { stripeRouter } from "./routers/stripe";
 import { templatesRouter } from "./routers/templates";
+import { xrplRouter } from "./routers/xrpl";
 
 export const appRouter = router({
   system: systemRouter,
@@ -29,6 +30,7 @@ export const appRouter = router({
   admin: adminRouter,
   profile: profileRouter,
   stripe: stripeRouter,
+  xrpl: xrplRouter,
 });
 
 export type AppRouter = typeof appRouter;

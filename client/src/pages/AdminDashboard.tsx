@@ -3,6 +3,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import {
   BarChart3,
   BookOpen,
+  CircleCheck,
+  CircleX,
   Crown,
   Loader2,
   Settings,
@@ -10,6 +12,7 @@ import {
   TrendingUp,
   Users,
   Wand2,
+  WalletCards,
   Zap,
 } from "lucide-react";
 import { useState } from "react";
@@ -25,6 +28,7 @@ export default function AdminDashboard() {
   const { data: stats, isLoading } = trpc.admin.stats.useQuery();
   const { data: highValueScans } = trpc.admin.highValueScans.useQuery();
   const { data: configArr } = trpc.admin.getConfig.useQuery();
+  const { data: paymentStatus, isLoading: paymentStatusLoading } = trpc.admin.paymentStatus.useQuery();
   const config = configArr ? Object.fromEntries(configArr.map(c => [c.key, c.value])) : {};
 
   const setConfigMutation = trpc.admin.setConfig.useMutation({
@@ -86,6 +90,38 @@ export default function AdminDashboard() {
             </div>
           );
         })}
+      </div>
+
+      <div className="fantasy-card mb-6 p-5">
+        <div className="mb-4 flex items-center gap-2">
+          <WalletCards className="h-5 w-5" style={{ color: "var(--gold)" }} />
+          <h3 className="font-heading text-base font-semibold text-foreground">Payment Rails</h3>
+          <span className="ml-auto text-[10px] uppercase tracking-widest text-muted-foreground">Server-side status</span>
+        </div>
+        {paymentStatusLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Checking payment configuration…</div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="rounded-lg p-4" style={{ background: "oklch(0.18 0.03 50)", border: "1px solid oklch(0.35 0.06 55)" }}>
+              <div className="mb-2 flex items-center gap-2 font-heading text-sm text-foreground">
+                {paymentStatus?.stripe.walletCheckoutConfigured ? <CircleCheck className="h-4 w-4 text-emerald-300" /> : <CircleX className="h-4 w-4 text-rose-300" />}
+                Apple Pay / Google Pay
+              </div>
+              <p className="text-xs text-muted-foreground">{paymentStatus?.stripe.walletCheckoutConfigured ? "Stripe keys and webhook are configured." : "Stripe secrets are incomplete."}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">{paymentStatus?.stripe.note}</p>
+            </div>
+            <div className="rounded-lg p-4" style={{ background: "oklch(0.18 0.03 50)", border: "1px solid oklch(0.35 0.06 55)" }}>
+              <div className="mb-2 flex items-center gap-2 font-heading text-sm text-foreground">
+                {paymentStatus?.xrpl.configured ? <CircleCheck className="h-4 w-4 text-emerald-300" /> : <CircleX className="h-4 w-4 text-rose-300" />}
+                XRP Ledger
+                {paymentStatus?.xrpl.configured && <span className="ml-auto rounded-full border border-emerald-400/30 px-2 py-0.5 text-[10px] uppercase text-emerald-200">{paymentStatus.xrpl.network}</span>}
+              </div>
+              <p className="text-xs text-muted-foreground">{paymentStatus?.xrpl.configured ? "Public destination and WebSocket endpoint are configured." : "XRPL configuration is incomplete."}</p>
+              <p className="mt-2 text-[11px] text-muted-foreground">{paymentStatus?.xrpl.note}</p>
+              {paymentStatus?.xrpl.destinationAddress && <p className="mt-2 truncate font-mono text-[10px] text-emerald-200">{paymentStatus.xrpl.destinationAddress}</p>}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

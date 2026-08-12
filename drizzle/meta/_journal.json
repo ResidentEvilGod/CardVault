@@ -15,6 +15,20 @@
       "when": 1783553425848,
       "tag": "0001_motionless_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786505940870,
+      "tag": "0002_tranquil_sage",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786506165149,
+      "tag": "0003_watery_sasquatch",
+      "breakpoints": true
     }
   ]
 }

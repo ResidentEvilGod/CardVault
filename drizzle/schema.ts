@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   varchar,
+  uniqueIndex,
 } from "drizzle-orm/mysql-core";
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -110,11 +111,61 @@ export const creditTransactions = mysqlTable("creditTransactions", {
   description: varchar("description", { length: 256 }),
   stripePaymentIntentId: varchar("stripePaymentIntentId", { length: 128 }),
   stripeSessionId: varchar("stripeSessionId", { length: 128 }),
+  stripeInvoiceId: varchar("stripeInvoiceId", { length: 128 }),
+  xrplTransactionHash: varchar("xrplTransactionHash", { length: 128 }),
+  xrplPaymentIntentId: varchar("xrplPaymentIntentId", { length: 64 }),
   packId: varchar("packId", { length: 64 }), // which credit pack was purchased
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
+
+// ─── XRPL Payment Intents ───────────────────────────────────────────────────────
+// Payment intents use a unique invoice ID and destination tag so a confirmed
+// ledger transaction can be matched to exactly one user purchase.
+export const xrplPaymentIntents = mysqlTable("xrplPaymentIntents", {
+  id: int("id").autoincrement().primaryKey(),
+  invoiceId: varchar("invoiceId", { length: 64 }).notNull(),
+  userId: int("userId").notNull(),
+  packId: varchar("packId", { length: 64 }).notNull(),
+  credits: int("credits").notNull(),
+  destinationAddress: varchar("destinationAddress", { length: 64 }).notNull(),
+  destinationTag: int("destinationTag").notNull(),
+  amountDrops: varchar("amountDrops", { length: 32 }).notNull(),
+  amountXrp: decimal("amountXrp", { precision: 18, scale: 6 }).notNull(),
+  status: mysqlEnum("status", ["pending", "confirmed", "expired", "failed"]).default("pending").notNull(),
+  transactionHash: varchar("transactionHash", { length: 128 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  invoiceIdUnique: uniqueIndex("xrplPaymentIntents_invoiceId_unique").on(table.invoiceId),
+  transactionHashUnique: uniqueIndex("xrplPaymentIntents_transactionHash_unique").on(table.transactionHash),
+}));
+
+export type XrplPaymentIntent = typeof xrplPaymentIntents.$inferSelect;
+
+// ─── XRPL Transaction Audit Log ────────────────────────────────────────────────
+export const xrplTransactions = mysqlTable("xrplTransactions", {
+  id: int("id").autoincrement().primaryKey(),
+  paymentIntentId: int("paymentIntentId").notNull(),
+  userId: int("userId").notNull(),
+  transactionHash: varchar("transactionHash", { length: 128 }).notNull(),
+  sourceAddress: varchar("sourceAddress", { length: 64 }).notNull(),
+  destinationAddress: varchar("destinationAddress", { length: 64 }).notNull(),
+  destinationTag: int("destinationTag").notNull(),
+  amountDrops: varchar("amountDrops", { length: 32 }).notNull(),
+  ledgerIndex: int("ledgerIndex"),
+  status: mysqlEnum("status", ["confirmed", "failed"]).default("confirmed").notNull(),
+  creditsGranted: int("creditsGranted").notNull(),
+  confirmedAt: timestamp("confirmedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  transactionHashUnique: uniqueIndex("xrplTransactions_transactionHash_unique").on(table.transactionHash),
+}));
+
+export type XrplTransaction = typeof xrplTransactions.$inferSelect;
 
 // ─── Sale Items ────────────────────────────────────────────────────────────────
 export const saleItems = mysqlTable("saleItems", {

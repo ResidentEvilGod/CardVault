@@ -66,10 +66,18 @@
 - [x] Vitest: sell.generateListing NOT_FOUND test
 - [x] Vitest: templates.list test
 - [x] Vitest: profile.update test
-- [x] All 14 tests passing, zero TypeScript errors
+- [x] All 17 tests passing, zero TypeScript errors
 
 ## Post-Deployment Steps (for owner)
 - [ ] Add Scrydex API key in Admin Dashboard (/admin → App Config)
 - [ ] Claim Stripe sandbox at https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVHF5TUpBMlR3dkttc0xkLDE3ODQxNTkzMzcv100BrbIaDkq
 - [ ] Test Stripe payments with card 4242 4242 4242 4242
 - [ ] Deploy and verify nightly price update fires at 6am UTC
+
+- [x] Integrate XRPL payment intents, transaction verification, and idempotent credit fulfillment
+- [x] Add Apple Pay and Google Pay express checkout through a supported fiat payment processor
+- [x] Add payment-method configuration, status, and user-facing checkout states
+- [x] Harden critical security controls: headers, rate limiting, body limits, HTTPS behavior, CORS, and webhook verification
+- [x] Add database migration and tests for XRPL and payment security changes
+- [x] Run typecheck, tests, build, and review deployment configuration
+- [ ] Commit and push verified payment and security changes to GitHub after explicit user authorization

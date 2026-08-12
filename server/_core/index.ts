@@ -2,6 +2,9 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -30,44 +33,117 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+function getAllowedOrigins() {
+  return new Set([
+    process.env.VITE_APP_URL,
+    process.env.APP_URL,
+    "https://cardvaulttcg-3jzqkoyh.manus.space",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+  ].filter((origin): origin is string => Boolean(origin)));
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
-  // Stripe webhook (needs raw body)
+  const isProduction = process.env.NODE_ENV === "production";
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+
+  app.use(helmet({
+    crossOriginEmbedderPolicy: false,
+    contentSecurityPolicy: isProduction ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        frameAncestors: ["'none'"],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'", "https://js.stripe.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        connectSrc: [
+          "'self'",
+          "https://api.stripe.com",
+          "https://api.manus.im",
+          "https://api.coingecko.com",
+          "https://s.altnet.rippletest.net",
+          "wss://s.altnet.rippletest.net",
+        ],
+        frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
+      },
+    } : false,
+    hsts: isProduction ? { maxAge: 31_536_000, includeSubDomains: true, preload: true } : false,
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  }));
+
+  const allowedOrigins = getAllowedOrigins();
+  app.use(cors({
+    origin(origin: string | undefined, callback: (error: Error | null, allow?: boolean) => void) {
+      const isLocalDevelopment = !isProduction && Boolean(origin?.match(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/));
+      if (!origin || allowedOrigins.has(origin) || isLocalDevelopment) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Origin is not allowed"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  }));
+
+  if (isProduction) {
+    app.use((req, res, next) => {
+      if (req.secure || req.path === "/healthz") return next();
+      const host = req.get("host");
+      if (!host) return res.status(400).json({ error: "Host header required" });
+      return res.redirect(308, `https://${host}${req.originalUrl}`);
+    });
+  }
+
+  // Stripe must receive the untouched request body for signature verification.
+  // This route intentionally precedes express.json().
   app.post("/api/stripe/webhook",
-    express.raw({ type: "application/json" }),
-    (req, res, next) => {
-      // Attach raw body for Stripe signature verification
+    express.raw({ type: "application/json", limit: "256kb" }),
+    (req, _res, next) => {
       (req as express.Request & { rawBody?: Buffer }).rawBody = req.body as Buffer;
       next();
     },
-    stripeWebhookHandler
+    stripeWebhookHandler,
   );
 
-  // Scheduled: nightly price update
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "1mb", extended: false }));
+  registerStorageProxy(app);
+  registerOAuthRoutes(app);
+
+  const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please try again later." },
+  });
+  app.use("/api/trpc", apiLimiter);
+
+  // Scheduled handlers authenticate the cron identity with the Manus SDK.
   app.post("/api/scheduled/price-update", nightlyPriceUpdateHandler);
 
-  // tRPC API
   app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
       createContext,
-    })
+    }),
   );
-  // development mode uses Vite, production mode uses static files
+
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
   } else {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
+  const preferredPort = parseInt(process.env.PORT || "3000", 10);
   const port = await findAvailablePort(preferredPort);
 
   if (port !== preferredPort) {
@@ -79,4 +155,7 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error("[Server] Startup failed", error instanceof Error ? error.message : "unknown error");
+  process.exitCode = 1;
+});

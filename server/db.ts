@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   type InsertUser,
@@ -11,6 +11,8 @@ import {
   saleItems,
   scanSessions,
   users,
+  xrplPaymentIntents,
+  xrplTransactions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -119,7 +121,14 @@ export async function deductScanCredit(userId: number): Promise<boolean> {
   return true;
 }
 
-export async function addCredits(userId: number, amount: number, type: typeof creditTransactions.$inferInsert["type"], description: string, meta?: { stripePaymentIntentId?: string; stripeSessionId?: string; packId?: string }) {
+export async function addCredits(userId: number, amount: number, type: typeof creditTransactions.$inferInsert["type"], description: string, meta?: {
+  stripePaymentIntentId?: string;
+  stripeSessionId?: string;
+  stripeInvoiceId?: string;
+  xrplTransactionHash?: string;
+  xrplPaymentIntentId?: string;
+  packId?: string;
+}) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({
@@ -139,6 +148,105 @@ export async function getCreditTransactions(userId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(creditTransactions).where(eq(creditTransactions.userId, userId)).orderBy(desc(creditTransactions.createdAt)).limit(50);
+}
+
+// ─── XRPL Payments ─────────────────────────────────────────────────────────────
+
+export async function createXrplPaymentIntent(data: typeof xrplPaymentIntents.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  await db.insert(xrplPaymentIntents).values(data);
+  const result = await db.select().from(xrplPaymentIntents).where(eq(xrplPaymentIntents.invoiceId, data.invoiceId)).limit(1);
+  return result[0];
+}
+
+export async function getXrplPaymentIntent(invoiceId: string, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(xrplPaymentIntents).where(and(
+    eq(xrplPaymentIntents.invoiceId, invoiceId),
+    eq(xrplPaymentIntents.userId, userId),
+  )).limit(1);
+  return result[0];
+}
+
+export async function confirmXrplPaymentIntent(input: {
+  invoiceId: string;
+  transactionHash: string;
+  sourceAddress: string;
+  destinationAddress: string;
+  destinationTag: number;
+  amountDrops: string;
+  ledgerIndex: number | null;
+  confirmedAt: Date;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+
+  return db.transaction(async (tx) => {
+    const result = await tx.select().from(xrplPaymentIntents).where(and(
+      eq(xrplPaymentIntents.invoiceId, input.invoiceId),
+      eq(xrplPaymentIntents.status, "pending"),
+      isNull(xrplPaymentIntents.transactionHash),
+    )).limit(1);
+    const intent = result[0];
+    if (!intent) return { status: "already_processed" as const };
+    if (intent.expiresAt.getTime() <= Date.now()) {
+      await tx.update(xrplPaymentIntents).set({ status: "expired" }).where(eq(xrplPaymentIntents.id, intent.id));
+      throw new Error("Payment invoice has expired");
+    }
+
+    const updated = await tx.update(xrplPaymentIntents).set({
+      status: "confirmed",
+      transactionHash: input.transactionHash,
+      paidAt: input.confirmedAt,
+    }).where(and(
+      eq(xrplPaymentIntents.id, intent.id),
+      eq(xrplPaymentIntents.status, "pending"),
+      isNull(xrplPaymentIntents.transactionHash),
+    ));
+    const affectedRows = Number((updated as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);
+    if (affectedRows !== 1) return { status: "already_processed" as const };
+
+    await tx.update(users).set({
+      scanCredits: sql`scanCredits + ${intent.credits}`,
+    }).where(eq(users.id, intent.userId));
+
+    await tx.insert(creditTransactions).values({
+      userId: intent.userId,
+      type: "purchase",
+      amount: intent.credits,
+      description: `Purchased ${intent.packId} via XRPL`,
+      xrplTransactionHash: input.transactionHash,
+      xrplPaymentIntentId: intent.invoiceId,
+      packId: intent.packId,
+    });
+
+    await tx.insert(xrplTransactions).values({
+      paymentIntentId: intent.id,
+      userId: intent.userId,
+      transactionHash: input.transactionHash,
+      sourceAddress: input.sourceAddress,
+      destinationAddress: input.destinationAddress,
+      destinationTag: input.destinationTag,
+      amountDrops: input.amountDrops,
+      ledgerIndex: input.ledgerIndex,
+      status: "confirmed",
+      creditsGranted: intent.credits,
+      confirmedAt: input.confirmedAt,
+    });
+
+    return { status: "confirmed" as const, creditsGranted: intent.credits };
+  });
+}
+
+export async function getXrplPaymentHistory(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(xrplTransactions)
+    .where(eq(xrplTransactions.userId, userId))
+    .orderBy(desc(xrplTransactions.createdAt))
+    .limit(50);
 }
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
