@@ -1,0 +1,1 @@
+ALTER TABLE `creditTransactions` ADD `stripeInvoiceId` varchar(128);
