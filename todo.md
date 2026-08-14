@@ -81,3 +81,6 @@
 - [x] Add database migration and tests for XRPL and payment security changes
 - [x] Run typecheck, tests, build, and review deployment configuration
 - [x] Commit and push verified payment and security changes to GitHub after explicit user authorization
+
+- [x] Fix logo navigation to reliably return to home page
+- [x] Implement physical-card authenticity analysis in scan flow to detect screenshots/digital crops vs real photos

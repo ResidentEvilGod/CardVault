@@ -68,8 +68,13 @@ export const cards = mysqlTable("cards", {
   priceDmg: decimal("priceDmg", { precision: 10, scale: 2 }),
   // Graded prices (JSON: { PSA: { "10": 500, "9": 200 }, BGS: {...}, CGC: {...} })
   gradedPrices: json("gradedPrices"),
-  // AI confidence
+  // AI confidence and physical-card authenticity signal
   identificationConfidence: decimal("identificationConfidence", { precision: 5, scale: 2 }),
+  physicalCardLikelihood: decimal("physicalCardLikelihood", { precision: 5, scale: 2 }),
+  digitalImageRisk: decimal("digitalImageRisk", { precision: 5, scale: 2 }),
+  authenticityStatus: mysqlEnum("authenticityStatus", ["likely_physical", "uncertain", "likely_digital"]).default("uncertain").notNull(),
+  authenticityNotes: text("authenticityNotes"),
+  captureSource: mysqlEnum("captureSource", ["camera", "upload"]).default("upload").notNull(),
   // Timestamps
   pricesUpdatedAt: timestamp("pricesUpdatedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

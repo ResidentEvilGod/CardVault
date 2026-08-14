@@ -70,7 +70,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const sidebarContent = (
     <>
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-5 border-b" style={{ borderColor: "oklch(0.28 0.06 55 / 0.5)" }}>
+      <Link
+        href="/"
+        aria-label="Return to CardVault home"
+        className="flex items-center gap-3 px-4 py-5 border-b transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--gold)]"
+        style={{ borderColor: "oklch(0.28 0.06 55 / 0.5)" }}
+      >
         <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ background: "linear-gradient(135deg, oklch(0.72 0.18 55), oklch(0.55 0.25 290))" }}>
           <Sparkles className="w-4 h-4 text-white" />
@@ -80,7 +85,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             CardVault
           </span>
         )}
-      </div>
+      </Link>
 
       {/* Credits badge */}
       {isAuthenticated && !collapsed && (

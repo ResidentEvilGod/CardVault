@@ -29,6 +29,13 @@
       "when": 1786506165149,
       "tag": "0003_watery_sasquatch",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1786678612560,
+      "tag": "0004_wealthy_ezekiel",
+      "breakpoints": true
     }
   ]
 }

@@ -3,8 +3,10 @@ import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import {
   AlertCircle,
+  AlertTriangle,
   Camera,
   CheckCircle,
+  ShieldCheck,
   ChevronRight,
   Loader2,
   Sparkles,
@@ -35,6 +37,14 @@ type ScanResult = {
     gradeLevel?: string | null;
   };
   isHighValue: boolean;
+  authenticity?: {
+    status: "likely_physical" | "uncertain" | "likely_digital";
+    physicalCardLikelihood: number;
+    digitalImageRisk: number;
+    sourceClassification: string;
+    notes: string;
+    disclaimer: string;
+  };
 };
 
 export default function Scan() {
@@ -43,8 +53,10 @@ export default function Scan() {
   const [dragOver, setDragOver] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [captureSource, setCaptureSource] = useState<"camera" | "upload">("upload");
   const [result, setResult] = useState<ScanResult | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const scanMutation = trpc.cards.scan.useMutation({
     onSuccess: (data) => {
@@ -56,7 +68,7 @@ export default function Scan() {
     },
   });
 
-  const processFile = useCallback((file: File) => {
+  const processFile = useCallback((file: File, source: "camera" | "upload") => {
     if (!file.type.startsWith("image/")) {
       toast.error("Please upload an image file");
       return;
@@ -67,6 +79,7 @@ export default function Scan() {
       setPreview(dataUrl);
       const base64 = dataUrl.split(",")[1];
       setImageBase64(base64 ?? null);
+      setCaptureSource(source);
       setResult(null);
     };
     reader.readAsDataURL(file);
@@ -76,25 +89,56 @@ export default function Scan() {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
+    if (file) processFile(file, "upload");
   }, [processFile]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, source: "camera" | "upload") => {
     const file = e.target.files?.[0];
-    if (file) processFile(file);
+    if (file) processFile(file, source);
   };
 
   const handleScan = () => {
     if (!imageBase64) return;
-    scanMutation.mutate({ imageBase64, mimeType: "image/jpeg" });
+    scanMutation.mutate({ imageBase64, mimeType: "image/jpeg", captureSource });
   };
 
   const handleReset = () => {
     setPreview(null);
     setImageBase64(null);
+    setCaptureSource("upload");
     setResult(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
+
+  const authenticity = result?.authenticity;
+  const authenticityUi = authenticity?.status === "likely_physical"
+    ? {
+        icon: ShieldCheck,
+        label: "Likely physical-card photo",
+        description: "The image contains cues consistent with a camera photo of a physical card.",
+        color: "oklch(0.70 0.18 160)",
+        border: "oklch(0.60 0.20 160 / 0.4)",
+        background: "oklch(0.18 0.06 160 / 0.3)",
+      }
+    : authenticity?.status === "likely_digital"
+      ? {
+          icon: AlertTriangle,
+          label: "Likely screenshot or digital image",
+          description: "Ask for a fresh camera photo before relying on this scan for a high-value card.",
+          color: "oklch(0.76 0.16 75)",
+          border: "oklch(0.70 0.16 75 / 0.5)",
+          background: "oklch(0.22 0.08 55 / 0.35)",
+        }
+      : {
+          icon: AlertCircle,
+          label: "Authenticity signal is uncertain",
+          description: "Use a fresh, well-lit camera photo and manually review valuable cards.",
+          color: "oklch(0.76 0.16 75)",
+          border: "oklch(0.70 0.16 75 / 0.5)",
+          background: "oklch(0.22 0.08 55 / 0.35)",
+        };
+  const AuthenticityIcon = authenticityUi.icon;
 
   if (!isAuthenticated) {
     return (
@@ -130,15 +174,22 @@ export default function Scan() {
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => !preview && fileInputRef.current?.click()}
+            onClick={() => !preview && uploadInputRef.current?.click()}
           >
             <input
-              ref={fileInputRef}
+              ref={uploadInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => handleFileChange(e, "upload")}
+            />
+            <input
+              ref={cameraInputRef}
               type="file"
               accept="image/*"
               capture="environment"
               className="hidden"
-              onChange={handleFileChange}
+              onChange={(e) => handleFileChange(e, "camera")}
             />
 
             {preview ? (
@@ -168,7 +219,7 @@ export default function Scan() {
                   <p className="text-sm text-muted-foreground">or click to browse • supports JPG, PNG, WEBP</p>
                 </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                  onClick={(e) => { e.stopPropagation(); cameraInputRef.current?.click(); }}
                   className="btn-arcane text-sm"
                 >
                   <Camera className="w-4 h-4" />
@@ -187,6 +238,7 @@ export default function Scan() {
                 "Ensure the entire card is visible with good lighting",
                 "For graded cards, photograph the slab label clearly",
                 "Avoid blurry or angled shots",
+                "For the strongest source check, use Take Photo instead of an existing screenshot",
               ].map((tip) => (
                 <li key={tip} className="flex items-start gap-2 text-sm text-muted-foreground">
                   <Sparkles className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: "var(--gold)" }} />
@@ -244,6 +296,44 @@ export default function Scan() {
                 <Sparkles className="w-3 h-3" /> High Value
               </div>
             )}
+          </div>
+
+          <div
+            className="rounded-lg p-4"
+            style={{
+              background: authenticityUi.background,
+              border: `1px solid ${authenticityUi.border}`,
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <AuthenticityIcon className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: authenticityUi.color } as React.CSSProperties} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-heading text-sm font-semibold" style={{ color: authenticityUi.color }}>
+                    {authenticityUi.label}
+                  </p>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    {captureSource === "camera" ? "camera source" : "uploaded source"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{authenticityUi.description}</p>
+                {authenticity && (
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <div className="rounded-md px-2 py-1.5" style={{ background: "oklch(0.10 0.02 50 / 0.35)" }}>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Physical-photo signal</div>
+                      <div className="font-heading text-sm font-semibold text-foreground">{Math.round(authenticity.physicalCardLikelihood * 100)}%</div>
+                    </div>
+                    <div className="rounded-md px-2 py-1.5" style={{ background: "oklch(0.10 0.02 50 / 0.35)" }}>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Digital-image risk</div>
+                      <div className="font-heading text-sm font-semibold text-foreground">{Math.round(authenticity.digitalImageRisk * 100)}%</div>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  This is a visual source check, not proof of ownership or card authenticity. A screenshot shown on another screen can still look physical.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="fantasy-card p-6">

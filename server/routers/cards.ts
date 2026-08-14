@@ -129,6 +129,10 @@ async function identifyCardWithLLM(imageUrl: string): Promise<{
   gradingCompany?: string;
   gradeLevel?: string;
   certNumber?: string;
+  physicalCardLikelihood: number;
+  digitalImageRisk: number;
+  sourceClassification: "camera_photo" | "screen_or_screenshot" | "flat_digital_crop" | "uncertain";
+  authenticityNotes: string;
 } | null> {
   try {
     const visionMessages: Message[] = [
@@ -141,7 +145,12 @@ async function identifyCardWithLLM(imageUrl: string): Promise<{
         content: [
           {
             type: "text",
-            text: `Identify this trading card and return a JSON object with these fields:\n{\n  "tcg": "pokemon" | "mtg" | "lorcana" | "yugioh" | "onepiece" | "other",\n  "cardName": "exact card name",\n  "setName": "set/expansion name or null",\n  "setCode": "set abbreviation code or null",\n  "cardNumber": "card number like 025/102 or null",\n  "rarity": "rarity tier or null",\n  "artist": "artist name or null",\n  "confidence": 0.0-1.0 confidence score,\n  "isGraded": true if this is a graded/slabbed card,\n  "gradingCompany": "PSA" | "BGS" | "CGC" | null,\n  "gradeLevel": "10" | "9.5" | "9" | etc or null,\n  "certNumber": "certification number or null"\n}`,
+            text: `Identify this trading card and return a JSON object with these fields:\n{\n  "tcg": "pokemon" | "mtg" | "lorcana" | "yugioh" | "onepiece" | "other",\n  "cardName": "exact card name",\n  "setName": "set/expansion name or null",\n  "setCode": "set abbreviation code or null",\n  "cardNumber": "card number like 025/102 or null",\n  "rarity": "rarity tier or null",\n  "artist": "artist name or null",\n  "confidence": 0.0-1.0 confidence score,\n  "isGraded": true if this is a graded/slabbed card,\n  "gradingCompany": "PSA" | "BGS" | "CGC" | null,\n  "gradeLevel": "10" | "9.5" | "9" | etc or null,\n  "certNumber": "certification number or null",
+  "physicalCardLikelihood": 0.0-1.0 likelihood that this is a photograph of a physical card,
+  "digitalImageRisk": 0.0-1.0 likelihood that this is a screenshot, flat digital crop, or image displayed on a screen,
+  "sourceClassification": "camera_photo" | "screen_or_screenshot" | "flat_digital_crop" | "uncertain",
+  "authenticityNotes": "short explanation of visible physical cues or digital-image cues"
+}`,
           },
           {
             type: "image_url",
@@ -173,8 +182,12 @@ async function identifyCardWithLLM(imageUrl: string): Promise<{
               gradingCompany: { type: ["string", "null"] },
               gradeLevel: { type: ["string", "null"] },
               certNumber: { type: ["string", "null"] },
+              physicalCardLikelihood: { type: "number" },
+              digitalImageRisk: { type: "number" },
+              sourceClassification: { type: "string" },
+              authenticityNotes: { type: "string" },
             },
-            required: ["tcg", "cardName", "confidence", "isGraded"],
+            required: ["tcg", "cardName", "confidence", "isGraded", "physicalCardLikelihood", "digitalImageRisk", "sourceClassification", "authenticityNotes"],
             additionalProperties: false,
           },
         },
@@ -188,6 +201,33 @@ async function identifyCardWithLLM(imageUrl: string): Promise<{
   } catch {
     return null;
   }
+}
+
+export type SourceClassification = "camera_photo" | "screen_or_screenshot" | "flat_digital_crop" | "uncertain";
+
+export function deriveAuthenticityAssessment(input: {
+  captureSource: "camera" | "upload";
+  physicalCardLikelihood: number;
+  digitalImageRisk: number;
+  sourceClassification: SourceClassification;
+  notes: string;
+}) {
+  const physicalCardLikelihood = Math.max(0, Math.min(1, Number(input.physicalCardLikelihood ?? 0.5)));
+  const digitalImageRisk = Math.max(0, Math.min(1, Number(input.digitalImageRisk ?? 0.5)));
+  const digitalClassification = input.sourceClassification === "screen_or_screenshot" || input.sourceClassification === "flat_digital_crop";
+  const status = digitalClassification || digitalImageRisk >= 0.72
+    ? "likely_digital" as const
+    : input.captureSource === "camera" && physicalCardLikelihood >= 0.72 && digitalImageRisk <= 0.35
+      ? "likely_physical" as const
+      : "uncertain" as const;
+
+  return {
+    status,
+    physicalCardLikelihood,
+    digitalImageRisk,
+    sourceClassification: input.sourceClassification,
+    notes: input.notes,
+  };
 }
 
 async function searchScrydexByName(cardName: string, tcg: string): Promise<string | null> {
@@ -215,6 +255,7 @@ export const cardsRouter = router({
     .input(z.object({
       imageBase64: z.string(),
       mimeType: z.string().default("image/jpeg"),
+      captureSource: z.enum(["camera", "upload"]).default("upload"),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
@@ -256,6 +297,15 @@ export const cardsRouter = router({
           message: "Could not confidently identify the card. Please try a clearer photo.",
         });
       }
+
+      // Treat authenticity as a review signal, never proof of ownership or genuineness.
+      const authenticity = deriveAuthenticityAssessment({
+        captureSource: input.captureSource,
+        physicalCardLikelihood: identification.physicalCardLikelihood,
+        digitalImageRisk: identification.digitalImageRisk,
+        sourceClassification: identification.sourceClassification,
+        notes: identification.authenticityNotes,
+      });
 
       // Search Scrydex for card ID
       let scrydexId: string | null = null;
@@ -300,6 +350,11 @@ export const cardsRouter = router({
         priceDmg: prices?.priceDmg ?? undefined,
         gradedPrices: prices?.gradedPrices ?? undefined,
         identificationConfidence: String(identification.confidence),
+        physicalCardLikelihood: String(authenticity.physicalCardLikelihood),
+        digitalImageRisk: String(authenticity.digitalImageRisk),
+        authenticityStatus: authenticity.status,
+        authenticityNotes: authenticity.notes,
+        captureSource: input.captureSource,
         pricesUpdatedAt: new Date(),
       };
 
@@ -331,7 +386,19 @@ export const cardsRouter = router({
         });
       }
 
-      return { card: newCard, identification, isHighValue };
+      return {
+        card: newCard,
+        identification,
+        authenticity: {
+          status: authenticity.status,
+          physicalCardLikelihood: authenticity.physicalCardLikelihood,
+          digitalImageRisk: authenticity.digitalImageRisk,
+          sourceClassification: authenticity.sourceClassification,
+          notes: authenticity.notes,
+          disclaimer: "This is a visual source signal, not proof that the user owns the card or that the card is genuine.",
+        },
+        isHighValue,
+      };
     }),
 
   // Get card by ID
