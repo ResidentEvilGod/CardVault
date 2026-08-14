@@ -84,3 +84,4 @@
 
 - [x] Fix logo navigation to reliably return to home page
 - [x] Implement physical-card authenticity analysis in scan flow to detect screenshots/digital crops vs real photos
+- [x] Push logo-navigation and authenticity-check checkpoint to GitHub after explicit user authorization
