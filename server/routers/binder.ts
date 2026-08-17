@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import {
   addToBinder,
   getBinderCardById,
+  getCardById,
   getBinderCards,
   removeFromBinder,
   updateBinderCard,
@@ -18,17 +19,22 @@ export const binderRouter = router({
   // Add a card to binder
   add: protectedProcedure
     .input(z.object({
-      cardId: z.number(),
+      cardId: z.number().int().positive(),
       condition: z.enum(["NM", "LP", "MP", "HP", "DMG"]).default("NM"),
       isGraded: z.boolean().default(false),
       gradingCompany: z.string().optional(),
       gradeLevel: z.string().optional(),
       certNumber: z.string().optional(),
-      quantity: z.number().min(1).default(1),
-      notes: z.string().optional(),
-      purchasePrice: z.string().optional(),
+      quantity: z.number().int().min(1).max(1000).default(1),
+      notes: z.string().max(2000).optional(),
+      purchasePrice: z.string().regex(/^\d{1,8}(\.\d{1,2})?$/, "Enter a valid purchase price").optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const card = await getCardById(input.cardId);
+      if (!card || card.userId !== ctx.user.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
+      }
+
       const result = await addToBinder({
         userId: ctx.user.id,
         cardId: input.cardId,
@@ -47,15 +53,15 @@ export const binderRouter = router({
   // Update binder card
   update: protectedProcedure
     .input(z.object({
-      id: z.number(),
+      id: z.number().int().positive(),
       condition: z.enum(["NM", "LP", "MP", "HP", "DMG"]).optional(),
       isGraded: z.boolean().optional(),
       gradingCompany: z.string().optional(),
       gradeLevel: z.string().optional(),
       certNumber: z.string().optional(),
-      quantity: z.number().min(1).optional(),
-      notes: z.string().optional(),
-      purchasePrice: z.string().optional(),
+      quantity: z.number().int().min(1).max(1000).optional(),
+      notes: z.string().max(2000).optional(),
+      purchasePrice: z.string().regex(/^\d{1,8}(\.\d{1,2})?$/, "Enter a valid purchase price").optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
@@ -65,7 +71,7 @@ export const binderRouter = router({
 
   // Remove from binder
   remove: protectedProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ ctx, input }) => {
       await removeFromBinder(input.id, ctx.user.id);
       return { success: true };
@@ -73,7 +79,7 @@ export const binderRouter = router({
 
   // Get single binder card
   getById: protectedProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number().int().positive() }))
     .query(async ({ ctx, input }) => {
       const result = await getBinderCardById(input.id, ctx.user.id);
       if (!result) throw new TRPCError({ code: "NOT_FOUND" });

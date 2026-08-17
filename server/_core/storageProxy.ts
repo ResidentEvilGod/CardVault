@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { ENV } from "./env";
+import { sdk } from "./sdk";
 
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*key", async (req, res) => {
@@ -7,6 +8,24 @@ export function registerStorageProxy(app: Express) {
     const key = Array.isArray(rawKey) ? rawKey.join("/") : rawKey;
     if (!key) {
       res.status(400).send("Missing storage key");
+      return;
+    }
+
+    const scanOwnerMatch = /^scans\/(\d+)\/([A-Za-z0-9._-]+)$/.exec(key);
+    if (!scanOwnerMatch) {
+      res.status(404).send("Storage object not found");
+      return;
+    }
+
+    try {
+      const user = await sdk.authenticateRequest(req);
+      const ownerId = Number(scanOwnerMatch[1]);
+      if (!user || (user.id !== ownerId && user.role !== "admin")) {
+        res.status(403).send("Forbidden");
+        return;
+      }
+    } catch {
+      res.status(401).send("Authentication required");
       return;
     }
 

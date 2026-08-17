@@ -121,7 +121,11 @@ export const creditTransactions = mysqlTable("creditTransactions", {
   xrplPaymentIntentId: varchar("xrplPaymentIntentId", { length: 64 }),
   packId: varchar("packId", { length: 64 }), // which credit pack was purchased
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => ({
+  stripePaymentIntentUnique: uniqueIndex("creditTransactions_stripePaymentIntent_unique").on(table.stripePaymentIntentId),
+  stripeSessionUnique: uniqueIndex("creditTransactions_stripeSession_unique").on(table.stripeSessionId),
+  stripeInvoiceUnique: uniqueIndex("creditTransactions_stripeInvoice_unique").on(table.stripeInvoiceId),
+}));
 
 export type CreditTransaction = typeof creditTransactions.$inferSelect;
 

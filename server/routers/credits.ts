@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { addCredits, getCreditTransactions } from "../db";
 
 // Credit pack definitions
@@ -37,14 +37,13 @@ export const creditsRouter = router({
   }),
 
   // Admin: grant credits to user
-  adminGrant: protectedProcedure
+  adminGrant: adminProcedure
     .input(z.object({
-      userId: z.number(),
-      amount: z.number().min(1),
-      description: z.string().optional(),
+      userId: z.number().int().positive(),
+      amount: z.number().int().min(1).max(1_000_000),
+      description: z.string().trim().max(256).optional(),
     }))
-    .mutation(async ({ ctx, input }) => {
-      if (ctx.user.role !== "admin") throw new Error("Forbidden");
+    .mutation(async ({ input }) => {
       await addCredits(input.userId, input.amount, "admin_grant", input.description ?? "Admin credit grant");
       return { success: true };
     }),

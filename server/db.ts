@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   type InsertUser,
@@ -103,22 +103,44 @@ export async function getUserCount() {
 export async function deductScanCredit(userId: number): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
-  const user = await getUserById(userId);
-  if (!user || user.scanCredits <= 0) return false;
 
-  await db.update(users).set({
-    scanCredits: user.scanCredits - 1,
-    totalScansUsed: user.totalScansUsed + 1,
-  }).where(eq(users.id, userId));
+  return db.transaction(async (tx) => {
+    // The conditional update is the security boundary: concurrent requests can
+    // never both spend the same last credit.
+    const updated = await tx.update(users).set({
+      scanCredits: sql`scanCredits - 1`,
+      totalScansUsed: sql`totalScansUsed + 1`,
+    }).where(and(eq(users.id, userId), gt(users.scanCredits, 0)));
+    const affectedRows = Number((updated as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);
+    if (affectedRows !== 1) return false;
 
-  await db.insert(creditTransactions).values({
-    userId,
-    type: "scan_debit",
-    amount: -1,
-    description: "Card scan",
+    await tx.insert(creditTransactions).values({
+      userId,
+      type: "scan_debit",
+      amount: -1,
+      description: "Card scan",
+    });
+
+    return true;
   });
+}
 
-  return true;
+export async function restoreScanCredit(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.transaction(async (tx) => {
+    await tx.update(users).set({
+      scanCredits: sql`scanCredits + 1`,
+      totalScansUsed: sql`CASE WHEN totalScansUsed > 0 THEN totalScansUsed - 1 ELSE 0 END`,
+    }).where(eq(users.id, userId));
+    await tx.insert(creditTransactions).values({
+      userId,
+      type: "refund",
+      amount: 1,
+      description: "Scan credit restored after processing failure",
+    });
+  });
 }
 
 export async function addCredits(userId: number, amount: number, type: typeof creditTransactions.$inferInsert["type"], description: string, meta?: {
@@ -128,20 +150,35 @@ export async function addCredits(userId: number, amount: number, type: typeof cr
   xrplTransactionHash?: string;
   xrplPaymentIntentId?: string;
   packId?: string;
-}) {
+}): Promise<boolean> {
   const db = await getDb();
-  if (!db) return;
-  await db.update(users).set({
-    scanCredits: sql`scanCredits + ${amount}`,
-  }).where(eq(users.id, userId));
+  if (!db) return false;
 
-  await db.insert(creditTransactions).values({
-    userId,
-    type,
-    amount,
-    description,
-    ...meta,
-  });
+  try {
+    await db.transaction(async (tx) => {
+      // Insert the immutable ledger row first. Unique payment identifiers make
+      // duplicate Stripe deliveries roll back before the balance changes.
+      await tx.insert(creditTransactions).values({
+        userId,
+        type,
+        amount,
+        description,
+        ...meta,
+      });
+      const updated = await tx.update(users).set({
+        scanCredits: sql`scanCredits + ${amount}`,
+      }).where(eq(users.id, userId));
+      const affectedRows = Number((updated as unknown as [{ affectedRows?: number }])[0]?.affectedRows ?? 0);
+      if (affectedRows !== 1) throw new Error("Credit recipient not found");
+    });
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/duplicate entry|er_dup_entry|unique constraint/i.test(message) && (meta?.stripePaymentIntentId || meta?.stripeSessionId || meta?.stripeInvoiceId)) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function getCreditTransactions(userId: number) {

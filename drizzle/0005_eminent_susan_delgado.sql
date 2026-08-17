@@ -1,0 +1,3 @@
+ALTER TABLE `creditTransactions` ADD CONSTRAINT `creditTransactions_stripePaymentIntent_unique` UNIQUE(`stripePaymentIntentId`);--> statement-breakpoint
+ALTER TABLE `creditTransactions` ADD CONSTRAINT `creditTransactions_stripeSession_unique` UNIQUE(`stripeSessionId`);--> statement-breakpoint
+ALTER TABLE `creditTransactions` ADD CONSTRAINT `creditTransactions_stripeInvoice_unique` UNIQUE(`stripeInvoiceId`);

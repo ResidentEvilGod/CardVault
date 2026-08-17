@@ -9,6 +9,10 @@ function parseUserId(value: unknown) {
   return Number.isInteger(userId) && userId > 0 ? userId : null;
 }
 
+export function isRenewalInvoice(billingReason: string | undefined): boolean {
+  return billingReason === "subscription_cycle";
+}
+
 export async function stripeWebhookHandler(req: Request, res: Response) {
   const sig = req.headers["stripe-signature"];
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
@@ -148,8 +152,11 @@ export async function stripeWebhookHandler(req: Request, res: Response) {
         const invoice = event.data?.object as {
           id?: string;
           subscription?: string;
+          billing_reason?: string;
         } | undefined;
-        if (!invoice?.id || !invoice.subscription) break;
+        // checkout.session.completed grants the initial subscription allowance;
+        // only a recurring cycle invoice may grant another monthly allowance.
+        if (!invoice?.id || !invoice.subscription || !isRenewalInvoice(invoice.billing_reason)) break;
         const existing = await db.select({ id: creditTransactions.id })
           .from(creditTransactions)
           .where(eq(creditTransactions.stripeInvoiceId, invoice.id))

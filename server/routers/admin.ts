@@ -14,6 +14,18 @@ import {
   updateUser,
 } from "../db";
 
+export function isSensitiveConfigKey(key: string): boolean {
+  return /(api[_-]?key|secret|token|password|private)/i.test(key);
+}
+
+export function redactConfigRows<T extends { key: string; value: string }>(rows: T[]) {
+  return rows.map((row) => ({
+    ...row,
+    value: isSensitiveConfigKey(row.key) ? "[configured]" : row.value,
+    isSensitive: isSensitiveConfigKey(row.key),
+  }));
+}
+
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
@@ -34,14 +46,14 @@ export const adminRouter = router({
 
   // User list
   users: adminProcedure
-    .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(50), offset: z.number().int().min(0).max(100_000).default(0) }))
     .query(async ({ input }) => {
       return getAllUsers(input.limit, input.offset);
     }),
 
   // Recent scan sessions
   recentScans: adminProcedure
-    .input(z.object({ limit: z.number().default(50) }))
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(50) }))
     .query(async ({ input }) => {
       return getRecentScanSessions(input.limit);
     }),
@@ -53,7 +65,7 @@ export const adminRouter = router({
 
   // Get all config
   getConfig: adminProcedure.query(async () => {
-    return getAllConfig();
+    return redactConfigRows(await getAllConfig());
   }),
 
   paymentStatus: adminProcedure.query(() => {
@@ -92,8 +104,17 @@ export const adminRouter = router({
 
   // Update config value
   setConfig: adminProcedure
-    .input(z.object({ key: z.string(), value: z.string() }))
+    .input(z.object({
+      key: z.enum(["high_value_threshold", "scrydex_api_key"]),
+      value: z.string().trim().min(1).max(512),
+    }))
     .mutation(async ({ input }) => {
+      if (input.key === "high_value_threshold") {
+        const threshold = Number(input.value);
+        if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1_000_000) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Threshold must be between 0 and 1,000,000." });
+        }
+      }
       await setConfig(input.key, input.value);
       return { success: true };
     }),
@@ -103,7 +124,7 @@ export const adminRouter = router({
     .input(z.object({
       userId: z.number(),
       role: z.enum(["user", "admin"]).optional(),
-      scanCredits: z.number().optional(),
+      scanCredits: z.number().int().min(0).max(1_000_000).optional(),
     }))
     .mutation(async ({ input }) => {
       const { userId, ...data } = input;

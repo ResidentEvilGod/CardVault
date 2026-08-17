@@ -4,10 +4,10 @@ import { type Message, invokeLLM } from "../_core/llm";
 import { notifyOwner } from "../_core/notification";
 import { protectedProcedure, router } from "../_core/trpc";
 import {
-  addCredits,
   createCard,
   createScanSession,
   deductScanCredit,
+  restoreScanCredit,
   getCardById,
   getConfig,
   getRecentScans,
@@ -253,26 +253,41 @@ export const cardsRouter = router({
   // Upload image and scan card
   scan: protectedProcedure
     .input(z.object({
-      imageBase64: z.string(),
-      mimeType: z.string().default("image/jpeg"),
+      imageBase64: z.string()
+        .min(100, "Image payload is too small")
+        .max(10_000_000, "Image payload is too large")
+        .regex(/^[A-Za-z0-9+/]+={0,2}$/, "Invalid image payload"),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
       captureSource: z.enum(["camera", "upload"]).default("upload"),
     }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.user.id;
 
-      // Check credits (subscribers get unlimited)
+      // Reserve a credit before any expensive or externally observable work.
+      // The database update is conditional, so concurrent requests cannot reuse one credit.
       const user = ctx.user;
       const hasSubscription = user.subscriptionStatus === "active";
-      if (!hasSubscription && user.scanCredits <= 0) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "No scan credits remaining. Please purchase more credits or subscribe.",
-        });
+      let creditReserved = false;
+      let creditSettled = hasSubscription;
+      if (!hasSubscription) {
+        creditReserved = await deductScanCredit(userId);
+        if (!creditReserved) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "No scan credits remaining. Please purchase more credits or subscribe.",
+          });
+        }
+        creditSettled = false;
       }
 
-      // Upload image to storage
+      try {
+        // Upload image to storage
       const imageBuffer = Buffer.from(input.imageBase64, "base64");
-      const fileName = `scans/${userId}/${Date.now()}.jpg`;
+      if (imageBuffer.byteLength === 0 || imageBuffer.byteLength > 8_000_000) {
+        throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Image must be smaller than 8 MB." });
+      }
+      const extension = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const fileName = `scans/${userId}/${Date.now()}.${extension}`;
       const { key: imageKey, url: imageUrl } = await storagePut(fileName, imageBuffer, input.mimeType);
 
       // Build full URL for LLM
@@ -291,7 +306,7 @@ export const cardsRouter = router({
           status: "low_confidence",
           creditsUsed: 1,
         });
-        if (!hasSubscription) await deductScanCredit(userId);
+        creditSettled = true;
         throw new TRPCError({
           code: "UNPROCESSABLE_CONTENT",
           message: "Could not confidently identify the card. Please try a clearer photo.",
@@ -375,8 +390,7 @@ export const cardsRouter = router({
         isHighValue,
       });
 
-      // Deduct credit if not subscriber
-      if (!hasSubscription) await deductScanCredit(userId);
+      creditSettled = true;
 
       // Notify owner if high value
       if (isHighValue) {
@@ -399,6 +413,14 @@ export const cardsRouter = router({
         },
         isHighValue,
       };
+      } catch (error) {
+        if (creditReserved && !creditSettled) {
+          await restoreScanCredit(userId).catch((restoreError) => {
+            console.error("[Cards] Failed to restore reserved scan credit", restoreError instanceof Error ? restoreError.message : "unknown error");
+          });
+        }
+        throw error;
+      }
     }),
 
   // Get card by ID
@@ -446,7 +468,7 @@ export const cardsRouter = router({
 
   // Get recent scans for user
   recentScans: protectedProcedure
-    .input(z.object({ limit: z.number().default(10) }))
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(10) }))
     .query(async ({ ctx, input }) => {
       return getRecentScans(ctx.user.id, input.limit);
     }),
