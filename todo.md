@@ -70,7 +70,7 @@
 
 ## Post-Deployment Steps (for owner)
 - [ ] Add Scrydex API key in Admin Dashboard (/admin → App Config)
-- [ ] Claim Stripe sandbox at https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVHF5TUpBMlR3dkttc0xkLDE3ODQxNTkzMzcv100BrbIaDkq
+- [ ] Claim Stripe sandbox at https://dashboard.stripe.com/claim_sandbox/YWNjdF8xVHF5TUpBMlR3dkttc0xkLDE3ODQxNTkzMzcv100BrbIaDkg
 - [ ] Test Stripe payments with card 4242 4242 4242 4242
 - [ ] Deploy and verify nightly price update fires at 6am UTC
 
@@ -87,3 +87,4 @@
 - [x] Push logo-navigation and authenticity-check checkpoint to GitHub after explicit user authorization
 - [x] Audit credit, payment, authorization, upload, and abuse controls for free-credit or data-access vulnerabilities
 - [x] Add regression tests and fixes for confirmed security findings
+- [x] Push security audit fixes and anti-abuse hardening to GitHub after explicit user authorization
