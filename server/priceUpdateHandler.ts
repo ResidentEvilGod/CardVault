@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { sdk } from "./_core/sdk";
+import { ENV } from "./_core/env";
 import {
   getAllBinderCardsForPriceUpdate,
   getCardById,
@@ -9,12 +9,31 @@ import {
 } from "./db";
 import { fetchScrydexPrices, fetchScryfallPrice } from "./routers/cards";
 
+// Manus's Heartbeat scheduler authenticated its cron calls as a fake
+// "cron_" user via its own OAuth SDK, which doesn't exist outside Manus.
+// This endpoint isn't a logged-in Clerk user at all — it's an unattended
+// caller (Vercel Cron, a GitHub Actions scheduled workflow, etc) — so it's
+// checked with a plain shared secret instead of user auth. Set CRON_SECRET
+// to a long random value (e.g. `openssl rand -hex 32`) in your env, and
+// configure whatever triggers this endpoint to send it as:
+//   x-cron-secret: <the same value>
+function requireCronSecret(req: Request, res: Response): boolean {
+  if (!ENV.cronSecret) {
+    console.error("[PriceUpdate] CRON_SECRET is not set — refusing all requests.");
+    res.status(500).json({ error: "Server misconfigured: CRON_SECRET not set" });
+    return false;
+  }
+  const provided = req.header("x-cron-secret");
+  if (provided !== ENV.cronSecret) {
+    res.status(403).json({ error: "cron-only endpoint" });
+    return false;
+  }
+  return true;
+}
+
 export async function nightlyPriceUpdateHandler(req: Request, res: Response) {
   try {
-    const user = await sdk.authenticateRequest(req);
-    if (!user.isCron) {
-      return res.status(403).json({ error: "cron-only endpoint" });
-    }
+    if (!requireCronSecret(req, res)) return;
 
     console.log("[PriceUpdate] Starting nightly price refresh...");
     const allBinderCards = await getAllBinderCardsForPriceUpdate();

@@ -6,7 +6,7 @@ import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
+import { clerkMiddleware } from "@clerk/express";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -58,17 +58,22 @@ async function startServer() {
         baseUri: ["'self'"],
         frameAncestors: ["'none'"],
         objectSrc: ["'none'"],
-        scriptSrc: ["'self'", "https://js.stripe.com"],
+        // TODO: replace *.clerk.accounts.dev with your Clerk production
+        // Frontend API domain once you add a custom domain in the Clerk
+        // dashboard (Settings -> Domains) — the *.accounts.dev host is
+        // dev/staging only.
+        scriptSrc: ["'self'", "https://js.stripe.com", "https://*.clerk.accounts.dev"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
         connectSrc: [
           "'self'",
           "https://api.stripe.com",
-          "https://api.manus.im",
           "https://api.coingecko.com",
           "https://s.altnet.rippletest.net",
           "wss://s.altnet.rippletest.net",
+          "https://*.clerk.accounts.dev",
+          "https://clerk-telemetry.com",
         ],
         frameSrc: ["'self'", "https://js.stripe.com", "https://hooks.stripe.com"],
       },
@@ -114,8 +119,10 @@ async function startServer() {
 
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ limit: "1mb", extended: false }));
+  // Populates req.auth on every request from the Clerk session cookie /
+  // Bearer token. Reads CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY from env.
+  app.use(clerkMiddleware());
   registerStorageProxy(app);
-  registerOAuthRoutes(app);
 
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -126,7 +133,9 @@ async function startServer() {
   });
   app.use("/api/trpc", apiLimiter);
 
-  // Scheduled handlers authenticate the cron identity with the Manus SDK.
+  // Scheduled handler checks a shared secret header (see requireCronSecret
+  // in priceUpdateHandler.ts) instead of a user session — cron callers
+  // aren't a logged-in Clerk user.
   app.post("/api/scheduled/price-update", nightlyPriceUpdateHandler);
 
   app.use(
