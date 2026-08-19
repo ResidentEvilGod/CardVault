@@ -1,6 +1,5 @@
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { TRPCClientError } from "@trpc/client";
+import { useAuth as useClerkAuth, useClerk } from "@clerk/clerk-react";
 import { useCallback, useEffect, useMemo } from "react";
 
 type UseAuthOptions = {
@@ -9,86 +8,55 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  // Login is started via startLogin() in the effect below, only when we actually
-  // navigate — never during render. startLogin() mints a one-time nonce + writes
-  // the state cookie, so calling it per render would overwrite the cookie and
-  // desync it from an in-flight login's `state`.
   const { redirectOnUnauthenticated = false, redirectPath } = options ?? {};
+  const { isLoaded: clerkLoaded, isSignedIn } = useClerkAuth();
+  const { signOut, openSignIn } = useClerk();
   const utils = trpc.useUtils();
 
+  // Only ask our backend "who am I" (which returns the app's own user row,
+  // including role) once Clerk itself has confirmed a session exists.
+  // Without this gate, `auth.me` would fire and 401 before Clerk finishes
+  // loading, which would incorrectly trigger main.tsx's redirect-to-login
+  // handler on every page load.
   const meQuery = trpc.auth.me.useQuery(undefined, {
+    enabled: clerkLoaded && isSignedIn,
     retry: false,
     refetchOnWindowFocus: false,
   });
 
-  const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: () => {
-      utils.auth.me.setData(undefined, null);
-    },
-  });
-
   const logout = useCallback(async () => {
-    try {
-      await logoutMutation.mutateAsync();
-    } catch (error: unknown) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        return;
-      }
-      throw error;
-    } finally {
-      // Clear the Preview auto-login token mirrored into sessionStorage, so
-      // header-based sessions (Safari ITP / WebView) are logged out too. The
-      // backend cookie is cleared by the logout mutation.
-      try {
-        sessionStorage.removeItem("manus-cookie");
-      } catch {}
-      utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
-    }
-  }, [logoutMutation, utils]);
+    // Clerk owns the actual session now — signOut() clears it. The old
+    // trpc.auth.logout mutation only clears a legacy cookie Clerk doesn't
+    // use, so it's no longer part of the real sign-out path (see
+    // server/routers.ts, left in place harmlessly to keep its test green).
+    await signOut();
+    utils.auth.me.setData(undefined, null);
+    await utils.auth.me.invalidate();
+  }, [signOut, utils]);
 
-  const state = useMemo(() => {
-    localStorage.setItem(
-      "manus-runtime-user-info",
-      JSON.stringify(meQuery.data)
-    );
-    return {
+  const state = useMemo(
+    () => ({
       user: meQuery.data ?? null,
-      loading: meQuery.isLoading || logoutMutation.isPending,
-      error: meQuery.error ?? logoutMutation.error ?? null,
-      isAuthenticated: Boolean(meQuery.data),
-    };
-  }, [
-    meQuery.data,
-    meQuery.error,
-    meQuery.isLoading,
-    logoutMutation.error,
-    logoutMutation.isPending,
-  ]);
+      loading: !clerkLoaded || (Boolean(isSignedIn) && meQuery.isLoading),
+      error: meQuery.error ?? null,
+      isAuthenticated: Boolean(isSignedIn && meQuery.data),
+    }),
+    [clerkLoaded, isSignedIn, meQuery.data, meQuery.error, meQuery.isLoading]
+  );
 
   useEffect(() => {
     if (!redirectOnUnauthenticated) return;
-    if (meQuery.isLoading || logoutMutation.isPending) return;
+    if (!clerkLoaded) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
     if (redirectPath && window.location.pathname === redirectPath) return;
 
-    // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
     if (redirectPath) {
       window.location.href = redirectPath;
     } else {
-      startLogin();
+      openSignIn();
     }
-  }, [
-    redirectOnUnauthenticated,
-    redirectPath,
-    logoutMutation.isPending,
-    meQuery.isLoading,
-    state.user,
-  ]);
+  }, [redirectOnUnauthenticated, redirectPath, clerkLoaded, state.user, openSignIn]);
 
   return {
     ...state,
